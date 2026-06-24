@@ -2,24 +2,40 @@ from fastapi import APIRouter, status, HTTPException
 from uuid import UUID
 
 from src.exceptions import ItemNotFoundException
-from src.api.dependencies import PaginationDep, CategoryServiceDep, SubcategoryServiceDep
-from src.schema.category import PaginatedCategoryResponse, CategoryResponse, CreateCategory, UpdateCategory
-from src.schema.subcategory import PaginatedSubcategoryResponse
+from src.api.dependencies import PaginationDep, CategoryServiceDep, SubcategoryServiceDep, CategoryFilterDep
+from src.schema.subcategory import PaginatedSubcategoryResponse, SubcategoryFilter
+from src.schema.category import (
+    PaginatedCategoryResponse,
+    CategoryResponse,
+    CreateCategory,
+    UpdateCategory
+)
 
 
 router = APIRouter(prefix="/category", tags=["Category"])
 
 
-@router.get("/")
-async def read_categories(
+@router.get(
+    path="/",
+    status_code=status.HTTP_200_OK,
+    response_model=PaginatedCategoryResponse,
+    description="Получение списка категорий с фильтрацией и пагинацией."
+)
+async def get_all_categories(
+        category_filter: CategoryFilterDep,
         pagination: PaginationDep,
         category_service: CategoryServiceDep
 ) -> PaginatedCategoryResponse:
-    return await category_service.list_categories(pagination.page, pagination.size)
+    return await category_service.list_categories(category_filter, pagination)
 
 
-@router.get("/{id}")
-async def read_category(
+@router.get(
+    path="/{id}",
+    status_code=status.HTTP_200_OK,
+    response_model=CategoryResponse,
+    description="Получение информации о категории по ее ID."
+)
+async def get_category(
         category_id: UUID,
         category_service: CategoryServiceDep
 ) -> CategoryResponse:
@@ -29,24 +45,48 @@ async def read_category(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
-@router.get("/{id}/subcategories")
-async def read_subcategories(
+@router.get(
+    path="/{id}/subcategories",
+    status_code=status.HTTP_200_OK,
+    response_model=PaginatedSubcategoryResponse,
+    description="Получение списка подкатегорий, принадлежащих конкретной категории"
+)
+async def get_subcategories(
         category_id: UUID,
+        subcategory_filter: SubcategoryFilter,
         pagination: PaginationDep,
         subcategory_service: SubcategoryServiceDep
 ) -> PaginatedSubcategoryResponse:
-    return await subcategory_service.get_subcategory_by_parent_id(category_id, pagination.page, pagination.size)
+    try:
+        return await subcategory_service.get_subcategory_by_parent_id(
+            subcategory_filter,
+            category_id,
+            pagination.page,
+            pagination.size
+        )
+    except ItemNotFoundException as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
-async def create_category(
+@router.post(
+    path="/",
+    status_code=status.HTTP_201_CREATED,
+    response_model=CategoryResponse,
+    description="Создание новой категории"
+)
+async def add_category(
         val: CreateCategory,
         category_service: CategoryServiceDep
 ) -> CategoryResponse:
     return await category_service.create_category(val)
 
 
-@router.patch("/{id}")
+@router.patch(
+    path="/{id}",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=CategoryResponse,
+    description="Обновление существующей категории"
+)
 async def update_category(
         category_id: UUID,
         payload: UpdateCategory,
@@ -58,12 +98,32 @@ async def update_category(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
-@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    path="/{id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    description="Удаление категории (мягкое удаление)"
+)
 async def delete_category(
         category_id: UUID,
         category_service: CategoryServiceDep
 ) -> None:
     try:
         await category_service.delete_category(category_id)
+    except ItemNotFoundException as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.patch(
+    path="/{id}/restore",
+    status_code=status.HTTP_202_ACCEPTED,
+    description="Восстановление категории",
+    response_model=CategoryResponse
+)
+async def restore_category(
+        category_id: UUID,
+        category_service: CategoryServiceDep
+) -> CategoryResponse:
+    try:
+        return await category_service.restore_category(category_id)
     except ItemNotFoundException as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))

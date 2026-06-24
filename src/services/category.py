@@ -3,9 +3,16 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.exceptions import ItemNotFoundException
-from src.schema.category import PaginatedCategoryResponse, CategoryResponse, CreateCategory, UpdateCategory
 from src.models.category import Category
 from src.repository.category import CategoryRepository
+from src.utils.pagination import PaginationParams
+from src.schema.category import (
+    PaginatedCategoryResponse,
+    CategoryResponse,
+    CreateCategory,
+    UpdateCategory,
+    CategoryFilter
+)
 
 
 class CategoryService:
@@ -13,14 +20,18 @@ class CategoryService:
         self.session = session
         self.category_repository = CategoryRepository(Category, session)
 
-    async def list_categories(self, page: int = 1, size: int = 20) -> PaginatedCategoryResponse:
-        offset = (page - 1) * size
-        categories = await self.category_repository.get_all(offset, size)
-        total = await self.category_repository.count()
+    async def list_categories(
+            self,
+            category_filter: CategoryFilter,
+            pagination: PaginationParams
+    ) -> PaginatedCategoryResponse:
+        offset = (pagination.page - 1) * pagination.size
+        categories = await self.category_repository.get_all(category_filter, offset, pagination.size)
+        total = await self.category_repository.count(category_filter)
         return PaginatedCategoryResponse(
             items=[CategoryResponse.model_validate(category) for category in categories],
-            page=page,
-            size=size,
+            page=pagination.page,
+            size=pagination.size,
             total=total
         )
 
@@ -59,8 +70,17 @@ class CategoryService:
             raise ItemNotFoundException(category_id)
 
         await self.category_repository.delete(category_for_delete)
+        await self.session.commit()
 
-    # async def get_subcategories_by_parent_id(self, category_id: UUID) -> PaginatedSubcategoryResponse:
-    #     parent_category_orm = await self.category_repository.get_by_id(category_id)
-    #     if not parent_category_orm:
-    #         raise ItemNotFoundException(category_id)
+
+    async def restore_category(self, category_id: UUID) -> CategoryResponse:
+        category_for_restore = await self.category_repository.get_by_id(category_id)
+        if not category_for_restore:
+            raise ItemNotFoundException(category_id)
+
+        await self.category_repository.restore(category_for_restore)
+
+        await self.session.commit()
+        await self.session.refresh(category_for_restore)
+
+        return CategoryResponse.model_validate(category_for_restore)
